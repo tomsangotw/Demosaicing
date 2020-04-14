@@ -84,28 +84,7 @@ void CalWeightingTable(std::vector<float> &WeightTable,cv::Mat &HGradientMap, cv
         }
     }
 }
-/*
-void PrbMat(cv::Mat &Prb)
-{
-    std::fstream infile("./Prb.csv", std::ios::in);
-    if (!infile)
-    {
-        std::cerr << "Open the file error" << std::endl;
-        exit(EXIT_FAILURE);
-    }
-    std::string line;
-    int i = 0, j = 0;
-    while (getline(infile, line))
-    {
-        float *PrbP = Prb.ptr<float>(i++);
-        j = 0;
-        std::istringstream templine(line);
-        std::string data;
-        while (getline(templine, data, ',')) { PrbP[j++] = atof(data.c_str()); }
-    }
-    infile.close();
-}
-*/
+
 void GBTF_CFAInterpolation(cv::Mat &Bayer,cv::Mat &Dst,int BayerPatternFlag = 0)
 {
     cv::Mat Src = Bayer.clone();

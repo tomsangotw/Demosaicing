@@ -1,3 +1,5 @@
+// This code is modified from 
+// https://github.com/RayXie29/GBTF_Color_Interpolation
 
 #include "GBTF.hpp"
 #include <opencv2/opencv.hpp>

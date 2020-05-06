@@ -812,22 +812,6 @@ void demosaic_residual(cv::Mat &Bayer,cv::Mat &Dst, double sigma = 1.0){
 	//https://docs.opencv.org/master/d3/d63/classcv_1_1Mat.html#adf88c60c5b4980e05bb556080916978b
 	//although converTo() wil auto clamped to min/max
 
-	
-	Mat tempO;
-	finalBGR[1].convertTo(tempO, CV_8U, 255.0);
-	imwrite("green.bmp",  tempO);
-	/*
-	Mat tempO;
-	diff.convertTo(tempO, CV_8U, 255.0);
-	imwrite("diff.bmp",  tempO);
-	for(int i = 0; i < 8; i++){
-		for(int j = 0; j < 8; j++){
-			cout << imask.at<double>(i, j) << " ";
-		}cout << endl;
-	}
-	return;
-
-	*/
 
 	// === 2.Red and Blue ===
 	h = 5; //horizontal
@@ -894,9 +878,6 @@ int main(){
 	}*/
 	// === End of reading raw byte files ===
 
-
-	//image = imread( argv[1], 1 );//讀圖
-	//(檔案名稱, flag < 0原圖; flag=0 灰階; flag>0 BGR)
 	cout << "rows: " << RawImage.rows << endl;
 	cout << "cols: " << RawImage.cols << endl;
 	cout << "size: " << RawImage.size() << endl;
@@ -904,16 +885,19 @@ int main(){
 	cout << "type: " << RawImage.type() << endl;
 	cout << "chal: " << RawImage.channels() << endl;
 
+	/*
+	check rawbyte value
 	for (int i = 16; i < 32; i++){
 		for (int j = 0; j < 8; j++){
 			cout << RawImage.at<ushort>(i, j) << " ";
 		}
 		cout << endl;
 	}
+	*/
 
 	RawImage.convertTo(BayerImage, CV_64FC1);
 	BayerImage = BayerImage.mul(255.0 / 1023.0); //element wise
-	BayerImage.convertTo(BayerImage, CV_8UC1);
+	BayerImage.convertTo(BayerImage, CV_8UC1); // care opencv saturate_case
 
 /*
 	//OpenCV's demosaicing 

@@ -29,3 +29,5 @@ This is an implementation of non-Deep Learning demosaicing algorithm in OpenCV (
 + Residual interpolation (RI)
     + Residual interpolation for color image demosaicking (2013)
     + http://www.ok.sc.e.titech.ac.jp/res/DM/RI.pdf
+    + include Guided Image Filtering (2010)
+    + http://kaiminghe.com/eccv10/

@@ -1,5 +1,5 @@
 ## Demosaicing
-
+This is an implementation of non-Deep Learning demosaicing algorithm in OpenCV (C++)
 
 + Bayer 
     + Wiki:
@@ -18,6 +18,14 @@
 + Bilinear interpolation 
     + https://en.wikipedia.org/wiki/Bilinear_interpolation
 + Smooth-hue Interpolation
+    + Demosaicking methods for Bayer color arrays (2002)
+    + https://pdfs.semanticscholar.org/28c8/99ab34b6dd91d10474b5635eec6a97b8e3fa.pdf 
 + Laplacian-corrected Linear Filter
-+ GBTF
-+ RI
+    + Same as above Matlab default demosaicing algorithm
++ Gradient Based Threshold Free (GBTF)
+    + Gradient Based Threshold Free Color Filter Array Interpolation (2010)
+    + https://ieeexplore.ieee.org/document/5654327
+    + https://github.com/RayXie29/GBTF_Color_Interpolation (other's implementation)
++ Residual interpolation (RI)
+    + Residual interpolation for color image demosaicking (2013)
+    + http://www.ok.sc.e.titech.ac.jp/res/DM/RI.pdf

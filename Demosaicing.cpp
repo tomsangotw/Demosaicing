@@ -120,7 +120,7 @@ void ConvertToThreeChannelBayerBG(Mat &BGRImage){
 //  R  G
 //  G  B
 // 
-void toSingleChannel(cv::Mat &src,cv::Mat &dst){
+void toSingleChannel(cv::Mat &src,cv::Mat &dst){ //checked
 	if(src.channels() != 3){
 		std::cerr << "to_SingleChannel need 3 channel image" << std::endl;
 		return;
@@ -171,7 +171,7 @@ void demosaic_smooth_hue(cv::Mat &Bayer,cv::Mat &Dst){
 		bayer_split(Bayer, Src);
 	}
 
-	//kernals
+	//kernels
 	Mat K_G =( Mat_<float>(3,3) << 0, 1, 0, 1, 4, 1, 0, 1, 0); 
 	K_G *= (1.0/4.0);
 	Mat K_B = (Mat_<float>(3,3) << 1, 2, 1, 2, 4, 2, 1, 2, 1);
@@ -229,7 +229,7 @@ void demosaic_laplacian_corrected(cv::Mat &Bayer,cv::Mat &Dst, float alpha = 1.0
 		bayer_split(Bayer, Src);
 	}
 
-	// kernals
+	// kernels
 	Mat K_L = ( Mat_<float>(5,5) << 
 		0, 0, -1, 0,  0, 
 		0, 0,  0, 0,  0, 
@@ -292,7 +292,7 @@ void demosaic_laplacian_corrected(cv::Mat &Bayer,cv::Mat &Dst, float alpha = 1.0
 
 
 /* ==================== Gradient based threshold free ====================
-#       https://ieeexplore.ieee.org/document/5654327
+#       https://ieeexplore.ieee.org/document/5654327 (2010)
 */
 void demosaic_GBTF(cv::Mat &Bayer,cv::Mat &Dst){
 	cv::Mat Src = Bayer.clone();
@@ -376,9 +376,9 @@ void demosaic_GBTF(cv::Mat &Bayer,cv::Mat &Dst){
 	// use gradients of color differences to come up with weights for each direction.
 	Mat V_diff_gradient;
 	Mat H_diff_gradient;
-	float VHkernal[3] = {-1,0,1}; //(central difference form)
-	cv::Mat HK(1, 3, CV_32F, VHkernal);
-	cv::Mat VK(3, 1, CV_32F, VHkernal);
+	float VHkernel[3] = {-1,0,1}; //(central difference form)
+	cv::Mat HK(1, 3, CV_32F, VHkernel);
+	cv::Mat VK(3, 1, CV_32F, VHkernel);
 	cv::filter2D(V_Diff, V_diff_gradient, -1, VK);
 	cv::filter2D(H_Diff, H_diff_gradient, -1, HK);
 	V_diff_gradient = cv::abs(V_diff_gradient); // V_diff_gradient need shift row and col by 4
@@ -566,9 +566,9 @@ Mat box_filter_modified(const Mat &I, int h, int v){
 	// = call boxFiltr (all average)
 	// boxFilter(src, dst, src.type(), anchor, true, borderType).
 	blur(I, result, Size(2 * h + 1, 2 * v + 1)); //width * height
-	return result;
+	return result * (2 * h + 1) * (2 * v + 1);
 }
-// p: origin img (assume double or CV_64F)
+// p: origin img (assume double or CV_64F, 0.0 ~ 1.0)
 // I: guided img
 // M: binary mask
 // h, v: local window radius
@@ -580,17 +580,30 @@ Mat guided_filter_modified(const Mat &originP, const Mat &originI,  const Mat &M
 
 	// seems need mul(M) for all I if I will not be zero outside mask
 
+	//The number of the sammpled pixels in each local patch
+	Mat N = box_filter_modified(M, h, v);
+	Mat temp = (N == 0);
+	temp.convertTo(temp, CV_64F, 1.0/255.0);
+	N = N + temp;
+	// The size of each local patch; N=(2h+1)*(2v+1) except for boundary pixels.
+	Mat N2 = box_filter_modified(Mat::ones(I.rows, I.cols, CV_64F), h, v);
+
 	// step: 1
 	Mat mean_I = box_filter_modified(I.mul(M), h, v);
+	divide(mean_I, N, mean_I);
 	Mat mean_p = box_filter_modified(p, h, v);
+	divide(mean_p, N, mean_p);
 	Mat corr_I = box_filter_modified(I.mul(I).mul(M), h, v); //mul: element wise mul
+	divide(corr_I, N, corr_I);
 	Mat corr_Ip = box_filter_modified(I.mul(p), h, v);
+	divide(corr_Ip, N, corr_Ip);
+
 	// step: 2
 	Mat var_I = corr_I - mean_I.mul(mean_I);
 	//threshold parameter
 	double th = 0.00001;
 	for(int row = 0; row < var_I.rows; row++){
-		const float *p = var_I.ptr<float>(row); 
+		double *p = var_I.ptr<double>(row); 
 		for(int col = 0; col < var_I.cols; col++){
 			if(p[col] < th){ 
 				p[col] = th;
@@ -609,7 +622,9 @@ Mat guided_filter_modified(const Mat &originP, const Mat &originI,  const Mat &M
 	Mat b = mean_p - a.mul(mean_I);
 	// step: 4
 	Mat mean_a = box_filter_modified(a, h, v);
+	divide(mean_a, N2, mean_a);
 	Mat mean_b = box_filter_modified(b, h, v);
+	divide(mean_b, N2, mean_b);
 	// step: 5
 	Mat q = mean_a.mul(I) + mean_b;
 	Mat res;
@@ -620,8 +635,8 @@ Mat guided_filter_modified(const Mat &originP, const Mat &originI,  const Mat &M
 
 
 // =============== Residual Interpolation ===================
-// http://www.ok.sc.e.titech.ac.jp/res/DM/RI.pdf
-//
+//	http://www.ok.sc.e.titech.ac.jp/res/DM/RI.pdf (2013)
+//	sigma: standard deviation of gaussian filter
 void demosaic_residual(cv::Mat &Bayer,cv::Mat &Dst, double sigma = 1.0){
 	cv::Mat Src = Bayer.clone();
 	if(Bayer.channels() == 1){ //input 1 channel -> 3 channel Bayer
@@ -629,13 +644,14 @@ void demosaic_residual(cv::Mat &Bayer,cv::Mat &Dst, double sigma = 1.0){
 	}
 
 	Mat Src1ch;
-	toSingleChannel(Src, Src1ch);
-	cout << "toSingleChannel dtype: " << Src1ch.type() << endl;
+	toSingleChannel(Src, Src1ch); //cv8U
 	Src1ch.convertTo(Src1ch, CV_64F, 1.0 / 255.0); //normalize
 
-	Mat mask;
-	bayer_mask(Src, mask);
-	mask.convertTo(mask, CV_64F); //normalize
+	Mat tempMask;
+	bayer_mask(Src, tempMask);
+	tempMask.convertTo(tempMask, CV_64F); //normalize
+	vector<Mat> mask(3);
+	split(tempMask, mask);
 
 	// split channel to BGR 
 	Src.convertTo(Src, CV_64F, 1.0 / 255.0); //normalize
@@ -645,7 +661,7 @@ void demosaic_residual(cv::Mat &Bayer,cv::Mat &Dst, double sigma = 1.0){
 	split(Src, finalBGR);
 
 	// ==== 1.Green interpolation ===
-	// get green mask
+	// get green mask, care it depend on bayer type
 	// R G -> 0 1 -> 0 0
 	// G B    0 0    1 0
 	// see horizontal: Gr or Gb
@@ -667,12 +683,12 @@ void demosaic_residual(cv::Mat &Bayer,cv::Mat &Dst, double sigma = 1.0){
 		}
 	}
 
-	double VHkernal[3] = {0.5, 0, 0.5}; //bilinear interpolation at 1D
-	cv::Mat HK(1, 3, CV_64F, VHkernal);
-	cv::Mat VK(3, 1, CV_64F, VHkernal);
+	double VHkernel[3] = {0.5, 0, 0.5}; //bilinear interpolation at 1D
+	cv::Mat HK(1, 3, CV_64F, VHkernel);
+	cv::Mat VK(3, 1, CV_64F, VHkernel);
 	Mat rawH, rawV;
-	filter2D(Src1ch, rawH, -1, HK);
-	filter2D(Src1ch, rawV, -1, VH);
+	filter2D(Src1ch, rawH, -1, HK); //original matlab all using 'replicate' for filter
+	filter2D(Src1ch, rawV, -1, VK);
 
 	// Guide image
 	Mat GuideG_H = bgr[1] + rawH.mul(mask[2]) + rawH.mul(mask[0]);//Gh @ R: 1/2(Gh left + Gh right), Gh @ B: 1/2(Gh left + Gh right)
@@ -690,10 +706,11 @@ void demosaic_residual(cv::Mat &Bayer,cv::Mat &Dst, double sigma = 1.0){
 	Mat tentativeGr_H = guided_filter_modified(bgr[1].mul(maskGr), GuideR_H, maskGr, h, v, eps);// need mul(mask) because Green has two location
 	Mat tentativeGb_H = guided_filter_modified(bgr[1].mul(maskGb), GuideB_H, maskGb, h, v, eps);
 	Mat tentativeB_H = guided_filter_modified(bgr[0], GuideG_H, mask[0], h, v, eps);
-	Mat tentativeR_V = guided_filter_modified(bgr[2], GuideG_V, mask[2], h, v, eps);
-	Mat tentativeGr_V = guided_filter_modified(bgr[1].mul(maskGb), GuideR_V, maskGb, h, v, eps);
-	Mat tentativeGb_V = guided_filter_modified(bgr[1].mul(maskGr), GuideB_V, maskGr, h, v, eps);
-	Mat tentativeB_V = guided_filter_modified(bgr[0], GuideG_V, mask[0], h, v, eps);
+	// vertical part
+	Mat tentativeR_V = guided_filter_modified(bgr[2], GuideG_V, mask[2], v, h, eps);
+	Mat tentativeGr_V = guided_filter_modified(bgr[1].mul(maskGb), GuideR_V, maskGb, v, h, eps); //Gr <-> Gb
+	Mat tentativeGb_V = guided_filter_modified(bgr[1].mul(maskGr), GuideB_V, maskGr, v, h, eps);
+	Mat tentativeB_V = guided_filter_modified(bgr[0], GuideG_V, mask[0], v, h, eps);
 
 	// Residual
 	Mat residualGr_H = (bgr[1] - tentativeGr_H).mul(maskGr);
@@ -710,6 +727,7 @@ void demosaic_residual(cv::Mat &Bayer,cv::Mat &Dst, double sigma = 1.0){
 	filter2D(residualGb_H, residualGb_H, -1, HK);
 	filter2D(residualR_H, residualR_H, -1, HK);
 	filter2D(residualB_H, residualB_H, -1, HK);
+	// verical part
 	filter2D(residualGr_V, residualGr_V, -1, VK);
 	filter2D(residualGb_V, residualGb_V, -1, VK);
 	filter2D(residualR_V, residualR_V, -1, VK);
@@ -731,34 +749,114 @@ void demosaic_residual(cv::Mat &Bayer,cv::Mat &Dst, double sigma = 1.0){
 
 	// Combine Vertical and Horizontal Color Differences
 	// color difference gradient
-	double difKernal[3] = {1, 0, -1}; 
-	cv::Mat dif_H_K(1, 3, CV_64F, difKernal);
-	cv::Mat dif_V_K(3, 1, CV_64F, difKernal);
+	double difkernel[3] = {1, 0, -1}; 
+	Mat dif_H_K(1, 3, CV_64F, difkernel);
+	Mat dif_V_K(3, 1, CV_64F, difkernel);
 	Mat V_diff_gradient, H_diff_gradient;
 	filter2D(dif_H, H_diff_gradient, -1, dif_H_K);
 	filter2D(dif_V, V_diff_gradient, -1, dif_V_K);
+	//filter2D(dif_H, H_diff_gradient, -1, dif_H_K, Point(-1,-1), 0.0, BORDER_REPLICATE );
+	//filter2D(dif_V, V_diff_gradient, -1, dif_V_K, Point(-1,-1), 0.0, BORDER_REPLICATE );
 	H_diff_gradient = cv::abs(H_diff_gradient);
 	V_diff_gradient = cv::abs(V_diff_gradient);
 
-	// Directional weight
+	// Directional weight (four direction)
 	Mat K = Mat::ones(5, 5, CV_64F);
+	Mat hWeightSum, vWeightSum; 
+	filter2D(H_diff_gradient, hWeightSum, -1, K); //Add up 5x5 weight patch first
+	filter2D(V_diff_gradient, vWeightSum, -1, K);
+	Mat Wkernel = (Mat_<double>(1, 5) << 1, 0, 0, 0, 0); //shift kernal
+	Mat Ekernel = (Mat_<double>(1, 5) << 0, 0, 0, 0, 1);
+	Mat Nkernel = (Mat_<double>(5, 1) << 1, 0, 0, 0, 0);
+	Mat Skernel = (Mat_<double>(5, 1) << 0, 0, 0, 0, 1);
+	Mat wWeight, eWeight, nWeight, sWeight;
+	filter2D(hWeightSum, wWeight, -1, Wkernel); //shift
+	filter2D(hWeightSum, eWeight, -1, Ekernel);
+	filter2D(vWeightSum, nWeight, -1, Nkernel);
+	filter2D(vWeightSum, sWeight, -1, Skernel);
+	divide(1.0, (wWeight.mul(wWeight) + 1e-32), wWeight); //divide(double scale, InputArray src2, OutputArray dst, int dtype=-1)
+	divide(1.0, (eWeight.mul(eWeight) + 1e-32), eWeight);
+	divide(1.0, (nWeight.mul(nWeight) + 1e-32), nWeight);
+	divide(1.0, (sWeight.mul(sWeight) + 1e-32), sWeight);
 
 	// combine directional color differences
-
+	Mat weightedF = getGaussianKernel(9, sigma); //(int ksize, double sigma, int ktype=CV_64F). return [ksize x 1] matrix
+	Nkernel = (Mat_<double>(9, 1) << 1, 1, 1, 1, 1, 0, 0, 0, 0);
+	Nkernel = Nkernel.mul(weightedF);
+	double s = sum(Nkernel)[0];
+	Nkernel /= s;
+	Skernel = (Mat_<double>(9, 1) << 0, 0, 0, 0, 1, 1, 1, 1, 1);
+	Skernel = Skernel.mul(weightedF) / s;
+	transpose(Nkernel, Wkernel);
+	transpose(Skernel, Ekernel);
+	Mat fMulGradientSum_N, fMulGradientSum_S, fMulGradientSum_W, fMulGradientSum_E;
+	filter2D(dif_V, fMulGradientSum_N, -1, Nkernel); 
+	filter2D(dif_V, fMulGradientSum_S, -1, Skernel);
+	filter2D(dif_H, fMulGradientSum_W, -1, Wkernel);
+	filter2D(dif_H, fMulGradientSum_E, -1, Ekernel);
+	Mat totalWeight = nWeight + eWeight + wWeight + sWeight;
+	Mat diff;
+	divide(nWeight.mul(fMulGradientSum_N) + sWeight.mul(fMulGradientSum_S) + wWeight.mul(fMulGradientSum_W) + eWeight.mul(fMulGradientSum_E), totalWeight, diff);//(InputArray src1, InputArray src2, OutputArray dst, double scale=1, int dtype=-1)
 
 	// Calculate Green by adding bayer raw data 
+	finalBGR[1] = diff + Src1ch; //raw CFA data
+	Mat imask = (mask[1] == 0); //[0, 1, 1] -> [255, 0, 0]
+	imask.convertTo(imask, CV_64F, 1.0/255.0);
+	finalBGR[1] = finalBGR[1].mul(imask) + bgr[1]; //avoid original green value been modified
 
 	// clip to 0~1
-	// https://answers.opencv.org/question/28765/keep-values-in-a-specific-range-in-a-mat-using-opencv/
+	//https://docs.opencv.org/master/db/d8e/tutorial_threshold.html
+	//(InputArray src, OutputArray dst, double thresh, double maxval, int type)
+	threshold(finalBGR[1], finalBGR[1], 1.0, 1.0, THRESH_TRUNC); // > 1 to 1
+	threshold(finalBGR[1], finalBGR[1], 0.0, 0.0, THRESH_TOZERO); // < 0 to 0
+	//https://docs.opencv.org/master/d3/d63/classcv_1_1Mat.html#adf88c60c5b4980e05bb556080916978b
+	//although converTo() wil auto clamped to min/max
+
+	
+	Mat tempO;
+	finalBGR[1].convertTo(tempO, CV_8U, 255.0);
+	imwrite("green.bmp",  tempO);
+	/*
+	Mat tempO;
+	diff.convertTo(tempO, CV_8U, 255.0);
+	imwrite("diff.bmp",  tempO);
+	for(int i = 0; i < 8; i++){
+		for(int j = 0; j < 8; j++){
+			cout << imask.at<double>(i, j) << " ";
+		}cout << endl;
+	}
+	return;
+
+	*/
 
 	// === 2.Red and Blue ===
+	h = 5; //horizontal
+	v = 5; //vertical
+	eps = 0.0;
 
+	// R interpolation
+	Mat tentativeR = guided_filter_modified(bgr[2], finalBGR[1], mask[2], h, v, eps);
+	Mat residualR = (bgr[2] - tentativeR).mul(mask[2]);
+	Mat bilinearKernel = (Mat_<double>(3, 3) << 0.25, 0.5, 0.25, 0.5, 1.0, 0.5, 0.25, 0.5, 0.25);
+	filter2D(residualR, residualR, -1, bilinearKernel);
+	finalBGR[2] = residualR + tentativeR;
+
+	// B interpolation
+	Mat tentativeB = guided_filter_modified(bgr[0], finalBGR[1], mask[0], h, v, eps);
+	Mat residualB = (bgr[0] - tentativeB).mul(mask[0]);
+	filter2D(residualB, residualB, -1, bilinearKernel);
+	finalBGR[0] = residualB + tentativeB;
+
+	// Merge to single 3 channel Img
+	merge(finalBGR, Dst);
+	Dst.convertTo(Dst, CV_8U, 255.0);
 }
 
 
 
 int main(){
-	// read raw byte files
+
+	// === Start reading raw byte files ===
 	//http://www.cplusplus.com/doc/tutorial/files/
 	//https://stackoverflow.com/questions/36658734/c-get-all-bytes-of-a-file-in-to-a-char-array
 	//https://stackoverflow.com/questions/21662520/reading-a-dat-file-two-bytes-at-a-time
@@ -794,6 +892,8 @@ int main(){
 		puts("File Error");
 		exit(1);
 	}*/
+	// === End of reading raw byte files ===
+
 
 	//image = imread( argv[1], 1 );//讀圖
 	//(檔案名稱, flag < 0原圖; flag=0 灰階; flag>0 BGR)
@@ -855,9 +955,10 @@ int main(){
 	Mat dst;
 	//demosaic_smooth_hue(BayerImage, dst);
 	//demosaic_laplacian_corrected(BayerImage, dst);
-	demosaic_GBTF(BayerImage, dst);
+	//demosaic_GBTF(BayerImage, dst);
+	demosaic_residual(BayerImage, dst);
 	//BayerImage
-	imwrite("cppGBTF.bmp", dst);
+	imwrite("cppRI.bmp", dst);
 
 	cout << CV_VERSION << endl;
 	//cout << cv::getBuildInformation() << endl;

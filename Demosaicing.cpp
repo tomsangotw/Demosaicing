@@ -2,31 +2,12 @@
 #include <iostream>
 #include <fstream>
 #include <cstring>
-#include <cstring>
 #include <vector>
 #include <opencv2/opencv.hpp>
-#include "GBTF.hpp"
+#include "Demosaicing.hpp"
 
 using namespace std;
 using namespace cv;
-
-// old raw files
-int rows = 2464;
-int columns = 3280;
-
-/*
-//new raw files
-int rows = 3072;
-int columns = 4096;
-*/
-char fileName[] = "NB_10MA.raw";
-//char fileName[] = "./1/raw16_4096X3072.16_rggb_raw";
-//char fileName[] = "./2/raw16_4096X3072.16_rggb_raw";
-//char fileName[] = "./3/raw16_4096X3072.16_rggb_raw";
-
-Mat RawImage; //Mat->Matrix
-Mat BayerImage;
-Mat Image;
 
 /* Type look Up
 https://stackoverflow.com/questions/10167534/how-to-find-out-what-type-of-a-mat-object-is-with-mattype-in-opencv
@@ -873,24 +854,18 @@ void demosaic_residual(cv::Mat &Bayer,cv::Mat &Dst, float sigma = 1.0){
 }
 
 
+void Demosaicing(std::string &BayerFileName, cv::Mat &Dst, int rows, int cols, int BayerPatternFlag, int DemosaicingMethod){
+    Mat RawImage; 
+    Mat BayerImage;
 
-int main(){
-
-	// === Start reading raw byte files ===
-	//http://www.cplusplus.com/doc/tutorial/files/
-	//https://stackoverflow.com/questions/36658734/c-get-all-bytes-of-a-file-in-to-a-char-array
-	//https://stackoverflow.com/questions/21662520/reading-a-dat-file-two-bytes-at-a-time
-	// read in vector
-	//https://stackoverflow.com/questions/15138353/how-to-read-a-binary-file-into-a-vector-of-unsigned-chars
-	RawImage.create(rows, columns, CV_16UC1);
-	Image.create(rows, columns, CV_8UC3);
+    RawImage.create(rows, cols, CV_16UC1); //16 bit short
 
 	//https://stackoverflow.com/questions/15138353/how-to-read-a-binary-file-into-a-vector-of-unsigned-chars
 	ifstream inFile;
-	inFile.open(fileName, ios::binary);
+	inFile.open(BayerFileName, ios::binary);
 	if (!inFile.is_open()){
 		cout << "Unable to open file" << endl;
-        return 0;
+        return;
 	}
 
 	//16 bit -> short
@@ -901,88 +876,100 @@ int main(){
 	inFile.seekg(0, std::ios::end);
 	fileSize = inFile.tellg();
 	inFile.seekg(0, std::ios::beg);
-	cout << fileSize << endl;
 	//read data
-	inFile.read((char *)RawImage.data, rows * columns * sizeof(short));
+	inFile.read((char *)RawImage.data, rows * cols * sizeof(short)); //<-- 16 bit short
 	inFile.close();
 
-	/*
-	// File C style
-	FILE *fp = fopen("NB_10MA.raw", "rb");
-	if(fp == NULL){
-		puts("File Error");
-		exit(1);
-	}*/
-	// === End of reading raw byte files ===
+    //cout << "rows: " << RawImage.rows << endl;
+	//cout << "cols: " << RawImage.cols << endl;
+	//cout << "size: " << RawImage.size() << endl;
+	//cout << "dept: " << RawImage.depth() << endl; //0~4
+	//cout << "type: " << RawImage.type() << endl;
+	//cout << "chal: " << RawImage.channels() << endl
 
-	cout << "rows: " << RawImage.rows << endl;
-	cout << "cols: " << RawImage.cols << endl;
-	cout << "size: " << RawImage.size() << endl;
-	cout << "dept: " << RawImage.depth() << endl; //0~4
-	cout << "type: " << RawImage.type() << endl;
-	cout << "chal: " << RawImage.channels() << endl;
+    RawImage.convertTo(BayerImage, CV_32FC1);
+	BayerImage.convertTo(BayerImage, CV_8UC1, 255.0 / 1023.0); // divide depend on img bit, care opencv saturate_case
 
-	/*
-	check rawbyte value
-	for (int i = 16; i < 32; i++){
-		for (int j = 0; j < 8; j++){
-			cout << RawImage.at<ushort>(i, j) << " ";
-		}
-		cout << endl;
-	}
-	*/
+    // R G R
+    // G B G
+    // R G R
+    //copyMakeBorder(src, dst, int top, int bottom, int left, int right, int borderType, const Scalar& value=Scalar() )
+    switch(BayerPatternFlag){ //turn all to RGGB by copyMakeBorder
+        case 1: //RGGB
+            break;
+        case 2: //GRBG
+            // R|GR|G
+            // G|BG|B
+            copyMakeBorder(BayerImage, BayerImage, 0, 0, 1, 1, cv::BORDER_REFLECT_101);
+            break;
+        case 3: //BGGR
+            // R|GR|G
+            // ------
+            // G|BG|B
+            // R|GR|G
+            // ------
+            // G|BG|B
+            copyMakeBorder(BayerImage, BayerImage, 1, 1, 1, 1, cv::BORDER_REFLECT_101);
+            break;
+        case 4: //GBRG
+            // RG
+            // --
+            // GB
+            // RG
+            // --
+            // GB
+            copyMakeBorder(BayerImage, BayerImage, 1, 1, 0, 0, cv::BORDER_REFLECT_101);
+            break;
+        default:
+            std::cerr << "Wrong Bayer Pattern Flag" << endl;
+            return;
+    }
+    switch(DemosaicingMethod){
+        case 1:
+            demosaic_smooth_hue(BayerImage, Dst);
+            break;
+        case 2:
+            demosaic_laplacian_corrected(BayerImage, Dst);
+            break;
+        case 3:
+            demosaic_GBTF(BayerImage, Dst);
+            break;
+        case 4:
+            demosaic_residual(BayerImage, Dst);
+            break;
+        default:
+            std::cerr << "Wrong Demosaicing Method Index" << endl;
+            return;
+    }
 
-	RawImage.convertTo(BayerImage, CV_32FC1);
-	BayerImage = BayerImage.mul(255.0 / 1023.0); //element wise
-	BayerImage.convertTo(BayerImage, CV_8UC1); // care opencv saturate_case
+    //Rect (x, y, width, height);
+    switch(BayerPatternFlag){ //turn all back from RGGB to Dst
+        case 1: //RGGB
+            break;
+        case 2: //GRBG
+            // R|GR|G
+            // G|BG|B
+            Dst = Dst(Rect(1, 0, BayerImage.cols - 2, BayerImage.rows));
+            break;
+        case 3: //BGGR
+            // R|GR|G
+            // ------
+            // G|BG|B
+            // R|GR|G
+            // ------
+            // G|BG|B
+            Dst = Dst(Rect(1, 1, BayerImage.cols - 2, BayerImage.rows - 2));
+            break;
+        case 4: //GBRG
+            // RG
+            // --
+            // GB
+            // RG
+            // --
+            // GB
+            Dst = Dst(Rect(0, 1, BayerImage.cols, BayerImage.rows - 2));
+            break;
+    }
 
-/*
-	//OpenCV's demosaicing 
-	// -bilinear
-	// -edge-aware
-	// -variable number of gradients
-	Mat CvDe;
-	Mat CvDe_VNG;
-	Mat CvDe_EA;
-	cvtColor(BayerImage, CvDe, COLOR_BayerBG2BGR);
-	cvtColor(BayerImage, CvDe_EA, COLOR_BayerBG2BGR_EA);
-	cvtColor(BayerImage, CvDe_VNG, COLOR_BayerBG2BGR_VNG); //github opencv issue 15011
-	// = demosaicing(BayerImage, CvDe_VNG, COLOR_BayerBG2BGR_VNG);
-	imwrite("CvDe.bmp", CvDe);
-	imwrite("CvDe_EA.bmp", CvDe_EA);
-	imwrite("CvDe_BG_VNG.bmp", CvDe_VNG);
-*/
-
-
-/*
-	//Guided filter
-	Mat lena = imread("lena.jpg", IMREAD_COLOR);
-	Mat res = guided_filter(lena, lena, 8, 0.05*0.05);
-	imwrite("GF.png", res);
-*/
-/*
-	//GBTF
-	// https://github.com/RayXie29/GBTF_Color_Interpolation
-	Mat dst;
-	Mat threeChannel;
-	cvtColor(BayerImage, threeChannel, COLOR_GRAY2BGR);
-	imwrite("threeChannel.bmp", threeChannel);
-	ConvertToThreeChannelBayerBG(threeChannel);
-	//Mat src = imread("bayer_pattern_img.bmp", IMREAD_COLOR);
-	GBTF_CFAInterpolation(threeChannel, dst, 3); //3: BGGR
-	cvtColor(dst, dst, COLOR_RGB2BGR);
-	imwrite("GBTF.bmp", dst);
-*/
-	Mat dst;
-	//demosaic_smooth_hue(BayerImage, dst);
-	//demosaic_laplacian_corrected(BayerImage, dst);
-	//demosaic_GBTF(BayerImage, dst);
-	demosaic_residual(BayerImage, dst);
-	//BayerImage
-	imwrite("cppRI.bmp", dst);
-
-	cout << CV_VERSION << endl;
-	//cout << cv::getBuildInformation() << endl;
-	waitKey(0);
-	return 0;
+    return;
 }
